@@ -62,9 +62,11 @@ Este proyecto se distribuye bajo la licencia **Creative Commons Atribución-Comp
 
 ---
 
-## Nota
+## Notas
 Por motivos de espacio y tiempo github no renderiza las graficas plotly cualquier duda aqui esta el enlace correcto
 | **Archivo .ipynb** | [Google Colab](https://colab.research.google.com/drive/1HuN4DOy8ADfTCvSjZsGfdvv31r2sIKvq?usp=sharing) |
+
+El dashboard no esta totalmente terminado es un pequeño boceto de lo pretendemos hacer
 
 
 *Hecho con mucho ☕ y muchas pasión por la Ciencia de Datos en la UNAM CU.*
