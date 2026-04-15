@@ -61,4 +61,8 @@ Somos estudiantes apasionados por transformar números en impacto social:
 Este proyecto se distribuye bajo la licencia **Creative Commons Atribución-CompartirIgual 4.0 Internacional (CC BY-SA 4.0)**. Creemos en el conocimiento abierto para un México mejor.
 
 ---
+
+## Nota
+Por motivos de espacio y tiempo github no renderiza las graficas plotly cualquier duda aqui esta el enlace correcto
+|**Archivo .ipynb| [Google Colab](https://colab.research.google.com/drive/1HuN4DOy8ADfTCvSjZsGfdvv31r2sIKvq?usp=sharing) 
 *Hecho con mucho ☕ y muchas pasión por la Ciencia de Datos en la UNAM CU.*
