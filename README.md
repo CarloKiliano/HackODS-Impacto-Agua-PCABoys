@@ -1,9 +1,7 @@
 # 💧 Más que Agua: El Ciclo de la Inacción en México
 ### Proyecto del equipo **PCABoys** para el HackODS UNAM 2026
 
-> *"Limpiar el agua cuesta menos que seguir pagando hospitales: la inacción es más cara."*
 
----
 
 ## 🌟 La visión del proyecto
 
