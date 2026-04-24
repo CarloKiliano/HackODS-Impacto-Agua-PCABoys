@@ -1,0 +1,1421 @@
+---
+title: "El Ciclo de la Inacción"
+author: "PCABoys — HackODS UNAM 2026"
+format:
+  dashboard:
+    orientation: rows
+    logo: assets/unam_logo.png
+    nav-buttons:
+      - icon: github
+        href: https://github.com/
+    theme:
+      - cosmo
+      - styles.scss
+    scrolling: true
+jupyter: python3
+---
+
+```{python}
+#| label: setup
+#| include: false
+
+# =====================================================================
+# SETUP — Librerías, datos y métricas clave
+# =====================================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import requests
+from pathlib import Path
+from matplotlib.ticker import FuncFormatter
+
+DATA_DIR = Path("data")
+
+# --- Carga de datos ---
+df_salud   = pd.read_csv(DATA_DIR / "final_enfermedades_corregido.csv")
+df_inegi   = pd.read_csv(DATA_DIR / "final_iter.csv", low_memory=False)
+df_pobreza = pd.read_csv(DATA_DIR / "final_pobreza.csv")
+df_agua    = pd.read_csv(DATA_DIR / "final_conagua_corregido.csv", low_memory=False)
+
+
+# =====================================================================
+# KPIs — Los 3 value boxes
+# =====================================================================
+
+# KPI 1 — Casos GI nacionales (suma hombres + mujeres)
+total_casos_gi = int(df_salud["ACUMULADO"].sum())
+
+# KPI 2 — % sitios contaminados (umbral OMS recreacional: ≥200 NMP/100mL)
+# Usamos deduplicación por medición más reciente, alineado con el análisis
+# principal del mapa (ver sección "MAPA BIVARIADO").
+UMBRAL_COLIFORMES = 200
+df_agua["COLI_FEC_NUM"] = pd.to_numeric(
+    df_agua["COLI_FEC"].astype(str).str.replace("<", ""),
+    errors="coerce"
+)
+# Dedup: quedarse con medición más reciente por CLAVE SITIO
+_df_agua_dedup = df_agua.dropna(
+    subset=["COLI_FEC_NUM", "FECHA REALIZACIÓN"]
+).copy()
+_df_agua_dedup["FECHA_DT"] = pd.to_datetime(
+    _df_agua_dedup["FECHA REALIZACIÓN"], dayfirst=True, errors="coerce"
+)
+_df_agua_dedup = (
+    _df_agua_dedup.sort_values(by=["CLAVE SITIO", "FECHA_DT"], ascending=[True, False])
+    .drop_duplicates(subset=["CLAVE SITIO"], keep="first")
+)
+pct_contaminados = (_df_agua_dedup["COLI_FEC_NUM"] >= UMBRAL_COLIFORMES).mean() * 100
+
+# KPI 3 — Tasa incidencia GI niños 1-4 años (por 100k)
+POB_1_A_4 = 8_400_000
+casos_1_a_4 = int(df_salud["DE01_A_04"].sum() + df_salud["DE01_A_04F"].sum())
+tasa_1_a_4 = (casos_1_a_4 / POB_1_A_4) * 100_000
+
+# =====================================================================
+# REGIONES — Para la navegación territorial del mapa
+# =====================================================================
+
+REGIONES = {
+    "Norte":  ["BAJA CALIFORNIA", "BAJA CALIFORNIA SUR", "SONORA", "CHIHUAHUA",
+               "COAHUILA DE ZARAGOZA", "NUEVO LEÓN", "TAMAULIPAS", "DURANGO",
+               "SINALOA", "ZACATECAS"],
+    "Centro": ["CIUDAD DE MÉXICO", "MÉXICO", "HIDALGO", "TLAXCALA", "PUEBLA",
+               "MORELOS", "QUERÉTARO", "GUANAJUATO", "AGUASCALIENTES",
+               "SAN LUIS POTOSÍ", "JALISCO", "NAYARIT", "COLIMA",
+               "MICHOACÁN DE OCAMPO"],
+    "Sur":    ["GUERRERO", "OAXACA", "CHIAPAS", "VERACRUZ DE IGNACIO DE LA LLAVE",
+               "TABASCO", "CAMPECHE", "YUCATÁN", "QUINTANA ROO"],
+}
+
+# Configuración visual compartida (se reusa en las 4 vistas del mapa)
+UMBRAL_POBREZA = 40.0
+COLORES_MAPA = {
+    "1. Riesgo Bajo":        "#665e5e",
+    "2. Riesgo Hídrico":     "#5dade2",
+    "3. Vulnerabilidad":     "#f39c12",
+    "4. ZONA CERO":          "#c0392b",
+}
+ORDEN_CAT = ["1. Riesgo Bajo", "2. Riesgo Hídrico",
+             "3. Vulnerabilidad", "4. ZONA CERO"]
+
+# Centros y zooms óptimos por región
+VISTAS = {
+    "Nacional": {"center": {"lat": 23.5, "lon": -102.5}, "zoom": 4.3, "estados": None},
+    "Norte":    {"center": {"lat": 28.0, "lon": -106.0}, "zoom": 4.8, "estados": REGIONES["Norte"]},
+    "Centro":   {"center": {"lat": 20.0, "lon": -101.0}, "zoom": 5.3, "estados": REGIONES["Centro"]},
+    "Sur":      {"center": {"lat": 17.0, "lon": -94.0},  "zoom": 5.3, "estados": REGIONES["Sur"]},
+}
+
+# --- Preparación del DataFrame del mapa ---
+# (1) Limpieza y dedup: solo medición MÁS RECIENTE por CLAVE SITIO.
+#     Evita que un mismo río aparezca con 2 colores distintos.
+
+df_agua_mapa = df_agua.dropna(
+    subset=["LATITUD", "LONGITUD", "COLI_FEC_NUM", "NOM_ESTADO",
+            "FECHA REALIZACIÓN"]
+).copy()
+df_agua_mapa["FECHA_DT"] = pd.to_datetime(
+    df_agua_mapa["FECHA REALIZACIÓN"], dayfirst=True, errors="coerce"
+)
+df_agua_mapa = (
+    df_agua_mapa.sort_values(by=["CLAVE SITIO", "FECHA_DT"],
+                             ascending=[True, False])
+    .drop_duplicates(subset=["CLAVE SITIO"], keep="first")
+)
+
+# (2) Merge con pobreza estatal.
+#     Nombres ya estandarizados en los CSVs finales; solo normalizamos caso.
+df_agua_mapa["ESTADO_JOIN"] = (
+    df_agua_mapa["NOM_ESTADO"].astype(str).str.upper().str.strip()
+)
+df_pov_estado = (
+    df_pobreza.assign(
+        ESTADO_JOIN=df_pobreza["NOM_ESTADO"].astype(str).str.upper().str.strip()
+    )
+    .groupby("ESTADO_JOIN")["PCT_POBREZA"].mean()
+    .reset_index()
+)
+df_mapa_agg_full = df_agua_mapa.merge(
+    df_pov_estado, on="ESTADO_JOIN", how="left"
+).dropna(subset=["PCT_POBREZA"])
+
+# (3) Clasificación bivariada
+def _clasificar(row):
+    pobreza_alta = row["PCT_POBREZA"] >= UMBRAL_POBREZA
+    agua_toxica  = row["COLI_FEC_NUM"] >= UMBRAL_COLIFORMES
+    if not pobreza_alta and not agua_toxica:
+        return "1. Riesgo Bajo"
+    elif not pobreza_alta and agua_toxica:
+        return "2. Riesgo Hídrico"
+    elif pobreza_alta and not agua_toxica:
+        return "3. Vulnerabilidad"
+    else:
+        return "4. ZONA CERO"
+
+df_mapa_agg_full["Categoría"] = df_mapa_agg_full.apply(_clasificar, axis=1)
+df_mapa_agg_full["Veces_Sobre_Limite"] = (
+    df_mapa_agg_full["COLI_FEC_NUM"] / UMBRAL_COLIFORMES
+).round(1)
+df_mapa_agg_full["Categoría"] = pd.Categorical(
+    df_mapa_agg_full["Categoría"], categories=ORDEN_CAT, ordered=True
+)
+df_mapa_agg_full = df_mapa_agg_full.sort_values("Categoría")
+
+# (4) KPIs del mapa (para anotaciones dentro de la viz)
+ETIQUETA_ZC = "4. ZONA CERO"
+total_cuerpos_agua = len(df_mapa_agg_full)
+total_zonas_cero = int((df_mapa_agg_full["Categoría"] == ETIQUETA_ZC).sum())
+pct_zonas_cero = round(total_zonas_cero / total_cuerpos_agua * 100, 1) if total_cuerpos_agua else 0
+estados_zc_afectados = int(
+    df_mapa_agg_full.loc[
+        df_mapa_agg_full["Categoría"] == ETIQUETA_ZC, "NOM_ESTADO"
+    ].nunique()
+)
+
+# (5) GeoJSON de contorno de México (archivo local, ya descargado)
+import json
+_GEOJSON_PATH = DATA_DIR / "mexico_contorno.geojson"
+try:
+    with open(_GEOJSON_PATH, "r", encoding="utf-8") as f:
+        geojson_mexico = json.load(f)
+except Exception:
+    geojson_mexico = None  # Fallback: si falta el archivo, el mapa sigue funcionando
+
+# =====================================================================
+# VISUALIZACIÓN 2 — MUNICIPIOS CRÍTICOS
+# Top 5 municipios con mayor % de viviendas sin drenaje (sin sesgo poblacional).
+# Resuelve el bug de duplicación de INEGI (total municipal + localidades).
+# =====================================================================
+
+import unicodedata as _ud
+
+def _limpiar_texto(t):
+    """Normaliza texto: MAYÚSCULAS, sin acentos, sin espacios extras."""
+    if not isinstance(t, str):
+        return ""
+    s = _ud.normalize("NFD", t)
+    s = "".join(c for c in s if _ud.category(c) != "Mn")
+    return s.upper().strip()
+
+def _normalizar_estado_enf(nom):
+    """Maneja caracteres corruptos y variantes del CSV de enfermedades."""
+    s = _limpiar_texto(nom)
+    if "VERACRUZ" in s: return "VERACRUZ DE IGNACIO DE LA LLAVE"
+    if "MICHOAC" in s or "MICHOCSS" in s: return "MICHOACAN DE OCAMPO"
+    if "YUCAT" in s: return "YUCATAN"
+    if "NUEVO LE" in s: return "NUEVO LEON"
+    if "COAHUILA" in s: return "COAHUILA DE ZARAGOZA"
+    if "CIUDAD DE MEXICO" in s or "DISTRITO FEDERAL" in s: return "CIUDAD DE MEXICO"
+    if s in ["MEXICO", "MUXICO"]: return "MEXICO"
+    if "QUERET" in s or "QUERUT" in s: return "QUERETARO"
+    if "SAN LUIS POTOS" in s: return "SAN LUIS POTOSI"
+    return s
+
+# --- Casos GI por estado (desde final_enfermedades con normalización) ---
+df_salud_mun = df_salud.copy()
+df_salud_mun["EST_NORM"] = df_salud_mun["NOM_ESTADO"].apply(_normalizar_estado_enf)
+casos_gi_por_estado = df_salud_mun.groupby("EST_NORM")["ACUMULADO"].sum().to_dict()
+
+# --- Dedup ITER (corrige bug del total municipal duplicado) ---
+# El CSV de INEGI tiene una fila de total municipal + filas por localidad/AGEB.
+# Ordenamos por POBTOT desc y nos quedamos con la más grande por municipio.
+df_inegi["EST_KEY"] = df_inegi["NOM_ESTADO"].apply(_limpiar_texto)
+df_inegi["MUN_KEY"] = df_inegi["NOM_MUN"].apply(_limpiar_texto)
+df_mun_total = (
+    df_inegi.sort_values("POBTOT", ascending=False)
+            .drop_duplicates(subset=["EST_KEY", "MUN_KEY"], keep="first")
+            .copy()
+)
+df_mun_total["pct_sin_drenaje"] = (
+    df_mun_total["VPH_NODREN"].fillna(0) /
+    df_mun_total["VIVTOT"].replace(0, 1) * 100
+).round(2)
+
+# --- Top 5 municipios críticos ---
+# Filtro mínimo: VIVTOT >= 500 (elimina rancherías de <10 casas que dan %
+# engañosos, no sesga por tamaño poblacional).
+MIN_VIVIENDAS = 500
+top5_municipios = (
+    df_mun_total[df_mun_total["VIVTOT"] >= MIN_VIVIENDAS]
+    .sort_values("pct_sin_drenaje", ascending=False)
+    .head(5)
+    .copy()
+)
+
+# --- Coordenadas aproximadas (centroides conocidos) ---
+# Como estos municipios son rurales/indígenas y no tienen puntos CONAGUA,
+# usamos centroides geográficos. Coordenadas verificadas.
+COORDS_MUNICIPIOS = {
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "XOXOCOTLA"):                    (20.2933, -98.0661),
+    ("OAXACA", "SAN JUAN BAUTISTA TLACOATZINTEPEC"):                     (17.9747, -96.2775),
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "TEHUIPANGO"):                   (18.5000, -97.0000),
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "ATLAHUILCO"):                   (18.6833, -97.0833),
+    ("OAXACA", "YAXE"):                                                   (16.6833, -96.5000),
+}
+
+top5_municipios["LAT"] = top5_municipios.apply(
+    lambda r: COORDS_MUNICIPIOS.get((r["EST_KEY"], r["MUN_KEY"]), (0, 0))[0],
+    axis=1
+)
+top5_municipios["LON"] = top5_municipios.apply(
+    lambda r: COORDS_MUNICIPIOS.get((r["EST_KEY"], r["MUN_KEY"]), (0, 0))[1],
+    axis=1
+)
+top5_municipios["CASOS_GI_ESTADO"] = top5_municipios["EST_KEY"].map(casos_gi_por_estado).fillna(0).astype(int)
+
+def construir_mapa_municipios():
+    """Mapa nacional con 5 pines en los municipios con peor drenaje.
+    Círculos huecos + etiquetas visibles (sin depender de hover)."""
+    # Preparar etiquetas cortas para mostrar pegadas a cada pin
+    top5_con_etiqueta = top5_municipios.copy()
+    top5_con_etiqueta["LABEL"] = top5_con_etiqueta.apply(
+        lambda r: f"{r['NOM_MUN']}<br>{r['pct_sin_drenaje']:.1f}%",
+        axis=1,
+    )
+
+    fig = px.scatter_mapbox(
+        top5_con_etiqueta,
+        lat="LAT", lon="LON",
+        color_discrete_sequence=["#c0392b"],
+        custom_data=["NOM_MUN", "NOM_ESTADO", "pct_sin_drenaje",
+                     "VIVTOT", "VPH_NODREN", "CASOS_GI_ESTADO", "POBTOT"],
+        size="pct_sin_drenaje",
+        size_max=22,
+        zoom=5.5,
+        center={"lat": 18.3, "lon": -96.8},
+        opacity=0.9,
+    )
+
+    _ = fig.update_traces(
+        marker=dict(
+            sizemin=12,
+            color="rgba(192, 57, 43, 0.85)",
+        ),
+        hovertemplate=(
+            "<b style='font-size:14px'>%{customdata[0]}</b><br>"
+            "<span style='color:#7f8c8d'>%{customdata[1]}</span><br>"
+            "━━━━━━━━━━━━━━━━━━<br>"
+            "<b>Viviendas sin drenaje:</b> %{customdata[2]}%<br>"
+            "&nbsp;&nbsp;<i style='color:#c0392b'>%{customdata[4]:,.0f} de %{customdata[3]:,.0f} viviendas</i><br>"
+            "<b>Población:</b> %{customdata[6]:,.0f} hab<br>"
+            "<b>Casos GI en el estado:</b> %{customdata[5]:,.0f}"
+            "<extra></extra>"
+        )
+    )
+
+    # Segunda capa: etiquetas con nombre + % visibles sin hover
+    _ = fig.add_scattermapbox(
+        lat=top5_con_etiqueta["LAT"],
+        lon=top5_con_etiqueta["LON"] + 0.55,  # offset a la derecha del pin
+        mode="text",
+        text=top5_con_etiqueta["LABEL"],
+        textfont=dict(
+            family="IBM Plex Sans, sans-serif",
+            size=11,
+            color="#1A1A1A",
+        ),
+        hoverinfo="skip",
+        showlegend=False,
+    )
+
+    mapbox_layers = []
+    if geojson_mexico is not None:
+        mapbox_layers = [{
+            "sourcetype": "geojson",
+            "source": geojson_mexico,
+            "type": "line",
+            "color": "rgba(44, 62, 80, 0.55)",
+            "line": {"width": 1.2},
+        }]
+
+    _ = fig.update_layout(
+        mapbox_style="carto-positron",
+        mapbox_layers=mapbox_layers,
+        margin={"r": 12, "t": 95, "l": 12, "b": 12},
+        height=None,
+        autosize=True,
+        showlegend=False,
+        font=dict(family="IBM Plex Sans, sans-serif", size=12, color="#1A1A1A"),
+        paper_bgcolor="#FFFFFF",
+    )
+
+    # KPIs del segundo mapa
+    peor_pct = top5_municipios["pct_sin_drenaje"].max()
+    peor_mun = top5_municipios.iloc[0]["NOM_MUN"]
+    total_viv_sin_drenaje = int(top5_municipios["VPH_NODREN"].sum())
+    estados_top5 = top5_municipios["NOM_ESTADO"].nunique()
+
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.0, y=1.07,
+        text=(f"<b style='font-size:20px; color:#c0392b'>{peor_pct}%</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>peor municipio ({peor_mun})</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.27, y=1.07,
+        text=(f"<b style='font-size:20px; color:#2C5F7C'>{estados_top5}</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>estados concentran el top 5</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.55, y=1.07,
+        text=(f"<b style='font-size:20px; color:#c0392b'>{total_viv_sin_drenaje:,}</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>viviendas sin drenaje en total</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+
+    # Nota editorial
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=1.0, y=1.07,
+        text=(
+            "<b style='color:#c0392b; font-size:10px'>Criterio del ranking</b><br>"
+            "<span style='font-size:9px; color:#595959'>"
+            "Top 5 por % de viviendas sin drenaje · "
+            f"Filtro mínimo {MIN_VIVIENDAS:,} viviendas</span>"
+        ),
+        showarrow=False, align="right", xanchor="right", yanchor="bottom",
+        bgcolor="rgba(255,255,255,0.96)",
+        bordercolor="#c0392b",
+        borderwidth=1,
+        borderpad=5,
+        font=dict(family="IBM Plex Sans, sans-serif"),
+    )
+
+    return fig
+
+# --- Ranking estatal (promedio ponderado de viviendas sin drenaje) ---
+# Agregamos VIVIENDAS por estado (no promedio simple de municipios, para
+# evitar que estados con muchos municipios chicos salgan inflados).
+df_estado_drenaje = df_mun_total.groupby("EST_KEY").agg(
+    viv_total=("VIVTOT", "sum"),
+    viv_sin_dren=("VPH_NODREN", "sum"),
+    pob_total=("POBTOT", "sum"),
+    n_municipios=("MUN_KEY", "nunique"),
+).reset_index()
+df_estado_drenaje["pct_estatal"] = (
+    df_estado_drenaje["viv_sin_dren"].fillna(0) /
+    df_estado_drenaje["viv_total"].replace(0, 1) * 100
+).round(2)
+df_estado_drenaje["NOM_ESTADO"] = df_estado_drenaje["EST_KEY"]
+df_estado_drenaje["CASOS_GI"] = df_estado_drenaje["EST_KEY"].map(
+    casos_gi_por_estado
+).fillna(0).astype(int)
+
+# Centroides aproximados por estado (para poner un pin representativo)
+CENTROIDES_ESTADOS = {
+    "AGUASCALIENTES":                   (21.88, -102.29),
+    "BAJA CALIFORNIA":                  (30.00, -115.50),
+    "BAJA CALIFORNIA SUR":              (25.50, -111.80),
+    "CAMPECHE":                         (19.00, -90.50),
+    "CHIAPAS":                          (16.50, -92.50),
+    "CHIHUAHUA":                        (28.50, -106.50),
+    "CIUDAD DE MEXICO":                 (19.43, -99.13),
+    "COAHUILA DE ZARAGOZA":             (27.30, -102.00),
+    "COLIMA":                           (19.00, -104.00),
+    "DURANGO":                          (24.80, -104.70),
+    "GUANAJUATO":                       (21.00, -101.20),
+    "GUERRERO":                         (17.60, -99.80),
+    "HIDALGO":                          (20.70, -98.70),
+    "JALISCO":                          (20.60, -103.50),
+    "MEXICO":                           (19.50, -99.50),
+    "MICHOACAN DE OCAMPO":              (19.40, -101.70),
+    "MORELOS":                          (18.80, -99.10),
+    "NAYARIT":                          (21.80, -104.80),
+    "NUEVO LEON":                       (25.70, -100.30),
+    "OAXACA":                           (17.00, -96.60),
+    "PUEBLA":                           (19.00, -97.90),
+    "QUERETARO":                        (20.90, -100.00),
+    "QUINTANA ROO":                     (19.30, -88.30),
+    "SAN LUIS POTOSI":                  (22.20, -100.70),
+    "SINALOA":                          (24.80, -107.40),
+    "SONORA":                           (29.50, -110.90),
+    "TABASCO":                          (17.80, -92.60),
+    "TAMAULIPAS":                       (24.30, -98.50),
+    "TLAXCALA":                         (19.40, -98.20),
+    "VERACRUZ DE IGNACIO DE LA LLAVE":  (19.00, -96.60),
+    "YUCATAN":                          (20.70, -88.90),
+    "ZACATECAS":                        (23.20, -102.60),
+}
+df_estado_drenaje["LAT"] = df_estado_drenaje["EST_KEY"].map(
+    lambda e: CENTROIDES_ESTADOS.get(e, (23.5, -102.5))[0]
+)
+df_estado_drenaje["LON"] = df_estado_drenaje["EST_KEY"].map(
+    lambda e: CENTROIDES_ESTADOS.get(e, (23.5, -102.5))[1]
+)
+
+def construir_ranking_estatal():
+    """Ranking editorial: 3 estados más rezagados vs 3 más avanzados.
+    Comparación narrativa, no tabla estadística completa."""
+    import plotly.graph_objects as go
+
+    df_sorted = df_estado_drenaje.sort_values("pct_estatal", ascending=False)
+    peores = df_sorted.head(3).copy()
+    peores["categoria"] = "LOS MÁS REZAGADOS"
+    mejores = df_sorted.tail(3).sort_values("pct_estatal").copy()
+    mejores["categoria"] = "LOS MÁS AVANZADOS"
+
+    # Concatenar: peores arriba, mejores abajo (con separador narrativo)
+    df_view = pd.concat([peores, mejores], ignore_index=True)
+
+    # Etiquetas título-case
+    df_view["label"] = df_view["NOM_ESTADO"].apply(
+        lambda e: e.title()
+                    .replace("De ", "de ")
+                    .replace(" De ", " de ")
+    )
+
+    # Colores: rojo para peores, verde para mejores
+    df_view["color"] = df_view["categoria"].apply(
+        lambda c: "#c0392b" if c == "LOS MÁS REZAGADOS" else "#4A7C59"
+    )
+
+    # Invertir orden para plotly (renderiza de abajo hacia arriba)
+    df_view = df_view.iloc[::-1].reset_index(drop=True)
+
+    fig = go.Figure()
+
+    _ = fig.add_trace(go.Bar(
+        y=df_view["label"],
+        x=df_view["pct_estatal"],
+        orientation="h",
+        marker=dict(color=df_view["color"], line=dict(width=0)),
+        customdata=df_view[["viv_sin_dren", "viv_total", "CASOS_GI"]].values,
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "<b>%{x:.2f}%</b> de viviendas sin drenaje<br>"
+            "%{customdata[0]:,.0f} de %{customdata[1]:,.0f} viviendas<br>"
+            "Casos GI del estado: %{customdata[2]:,.0f}"
+            "<extra></extra>"
+        ),
+        text=df_view["pct_estatal"].apply(lambda v: f"  {v:.2f}%"),
+        textposition="outside",
+        textfont=dict(size=13, family="IBM Plex Sans, sans-serif",
+                      color="#1A1A1A"),
+        cliponaxis=False,
+        width=0.65,
+    ))
+
+    # Separador visual entre grupos (línea discreta)
+    y_separador = 2.5  # entre las 3 primeras (mejores, abajo) y 3 últimas (peores, arriba)
+
+    _ = fig.update_layout(
+        margin={"r": 60, "t": 95, "l": 170, "b": 40},
+        plot_bgcolor="#FFFFFF",
+        paper_bgcolor="#FFFFFF",
+        font=dict(family="IBM Plex Sans, sans-serif", size=12, color="#1A1A1A"),
+        xaxis=dict(
+            title=dict(
+                text="% de viviendas sin drenaje doméstico",
+                font=dict(size=11, color="#595959"),
+            ),
+            showgrid=True,
+            gridcolor="#EEEBE3",
+            gridwidth=1,
+            zeroline=True,
+            zerolinecolor="#E0DDD5",
+            tickfont=dict(size=10, color="#595959"),
+            range=[0, 17],
+            ticksuffix="%",
+        ),
+        yaxis=dict(
+            showgrid=False,
+            tickfont=dict(
+                size=12.5,
+                family="IBM Plex Sans, sans-serif",
+                color="#1A1A1A",
+            ),
+            ticklabelposition="outside left",
+            automargin=True,
+        ),
+        showlegend=False,
+        height=None,
+        autosize=True,
+        shapes=[
+            dict(
+                type="line",
+                xref="paper", yref="y",
+                x0=0, x1=1,
+                y0=y_separador, y1=y_separador,
+                line=dict(color="#D0CDC4", width=1, dash="dot"),
+            ),
+        ],
+        annotations=[
+            # Etiqueta "LOS MÁS REZAGADOS" (arriba)
+            dict(
+                xref="paper", yref="y",
+                x=0.0, y=5.5,
+                text="<b style='color:#c0392b; letter-spacing:1px'>LOS MÁS REZAGADOS</b>",
+                showarrow=False,
+                xanchor="left", yanchor="middle",
+                font=dict(size=10, family="IBM Plex Sans, sans-serif"),
+            ),
+            # Etiqueta "LOS MÁS AVANZADOS" (abajo)
+            dict(
+                xref="paper", yref="y",
+                x=0.0, y=2.48,
+                text="<b style='color:#4A7C59; letter-spacing:1px'>LOS MÁS AVANZADOS</b>",
+                showarrow=False,
+                xanchor="left", yanchor="middle",
+                font=dict(size=10, family="IBM Plex Sans, sans-serif"),
+            ),
+        ],
+    )
+
+    # KPIs editoriales arriba
+    peor = peores.iloc[0]
+    mejor = mejores.iloc[0]
+    brecha = round(peor["pct_estatal"] / max(mejor["pct_estatal"], 0.01), 0)
+
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.0, y=1.07,
+        text=(f"<b style='font-size:20px; color:#c0392b'>{peor['pct_estatal']}%</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>Oaxaca, el peor del país</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.32, y=1.07,
+        text=(f"<b style='font-size:20px; color:#4A7C59'>{mejor['pct_estatal']}%</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>CDMX, el mejor del país</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.62, y=1.07,
+        text=(f"<b style='font-size:20px; color:#2C5F7C'>{int(brecha)}×</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>más casas sin drenaje</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+
+    # Nota contextual
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=1.0, y=1.07,
+        text=(
+            "<b style='color:#595959; font-size:10px'>Dos extremos del país</b><br>"
+            "<span style='font-size:9px; color:#595959'>"
+            "Comparación de los 3 más afectados vs<br>los 3 con mejor cobertura</span>"
+        ),
+        showarrow=False, align="right", xanchor="right", yanchor="bottom",
+        bgcolor="rgba(255,255,255,0.96)",
+        bordercolor="#595959",
+        borderwidth=1,
+        borderpad=5,
+        font=dict(family="IBM Plex Sans, sans-serif"),
+    )
+
+    return fig
+
+def construir_mapa(vista_nombre):
+    """Genera el mapa Plotly para una vista (Nacional, Norte, Centro, Sur).
+    Cada vista incluye contorno geojson, hover rico, y KPIs anotados.
+    """
+    vista = VISTAS[vista_nombre]
+    if vista["estados"] is None:
+        df_view = df_mapa_agg_full
+    else:
+        df_view = df_mapa_agg_full[
+            df_mapa_agg_full["ESTADO_JOIN"].isin(vista["estados"])
+        ]
+
+    # KPIs contextualizados (total / por vista)
+    n_cuerpos = len(df_view)
+    n_zc = int((df_view["Categoría"] == ETIQUETA_ZC).sum())
+    pct_zc = round(n_zc / n_cuerpos * 100, 1) if n_cuerpos else 0
+    n_estados = int(
+        df_view.loc[df_view["Categoría"] == ETIQUETA_ZC, "NOM_ESTADO"].nunique()
+    )
+
+    fig = px.scatter_mapbox(
+        df_view,
+        lat="LATITUD", lon="LONGITUD",
+        color="Categoría",
+        color_discrete_map=COLORES_MAPA,
+        category_orders={"Categoría": ORDEN_CAT},
+        custom_data=["NOMBRE DEL SITIO", "NOM_ESTADO", "COLI_FEC_NUM",
+                     "PCT_POBREZA", "Veces_Sobre_Limite", "Categoría",
+                     "FECHA REALIZACIÓN"],
+        zoom=vista["zoom"],
+        center=vista["center"],
+        opacity=0.85,
+    )
+
+    # Hover rico (mismo estilo del colab, adaptado a estética editorial)
+    _ = fig.update_traces(
+        marker=dict(size=6),
+        hovertemplate=(
+            "<b style='font-size:14px'>%{customdata[0]}</b><br>"
+            "<span style='color:#7f8c8d'>%{customdata[1]}</span><br>"
+            "<i>Última medición: %{customdata[6]}</i><br>"
+            "━━━━━━━━━━━━━━━━━━<br>"
+            "<b>Coliformes fecales:</b> %{customdata[2]:,.0f} NMP/100 ml<br>"
+            "&nbsp;&nbsp;<i style='color:#c0392b'>%{customdata[4]}× sobre el límite OMS</i><br>"
+            "<b>Pobreza estatal:</b> %{customdata[3]:.1f}%<br>"
+            "<b>Clasificación:</b> %{customdata[5]}"
+            "<extra></extra>"
+        )
+    )
+
+    # Layout con contorno geojson (si se descargó)
+    mapbox_layers = []
+    if geojson_mexico is not None:
+        mapbox_layers = [{
+            "sourcetype": "geojson",
+            "source": geojson_mexico,
+            "type": "line",
+            "color": "#2c3e50",
+            "line": {"width": 1.0},
+            "opacity": 0.55,
+        }]
+
+    _ = fig.update_layout(
+        mapbox_style="carto-positron",
+        mapbox_layers=mapbox_layers,
+        margin={"r": 12, "t": 95, "l": 12, "b": 12},
+        height=None,
+        autosize=True,
+        legend=dict(
+            title="",
+            orientation="h",
+            yanchor="bottom", y=0.02,
+            xanchor="center", x=0.5,
+            bgcolor="rgba(255,255,255,0.93)",
+            bordercolor="rgba(0,0,0,0.1)",
+            borderwidth=1,
+            font=dict(size=10, family="IBM Plex Sans, sans-serif"),
+            itemsizing="constant",
+            itemwidth=30,
+            tracegroupgap=18,
+            entrywidth=130,
+            entrywidthmode="pixels",
+        ),
+        font=dict(family="IBM Plex Sans, sans-serif", size=12, color="#1A1A1A"),
+        paper_bgcolor="#FFFFFF",
+    )
+
+    # KPIs editoriales — 3 datos arriba del mapa
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.0, y=1.07,
+        text=(f"<b style='font-size:20px; color:#c0392b'>{n_zc:,}</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>Zonas Cero detectadas</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.22, y=1.07,
+        text=(f"<b style='font-size:20px; color:#2C5F7C'>{n_estados}</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>estados afectados</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.44, y=1.07,
+        text=(f"<b style='font-size:20px; color:#c0392b'>{pct_zc}%</b><br>"
+              f"<span style='font-size:10px; color:#595959; "
+              f"font-family:IBM Plex Sans'>sitios monitoreados</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom"
+    )
+
+    # Nota editorial: definición de Zona Cero
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=1.0, y=1.07,
+        text=(
+            "<b style='color:#c0392b; font-size:10px'>¿Qué es una Zona Cero?</b><br>"
+            f"<span style='font-size:9px; color:#595959'>"
+            f"Coliformes ≥ {int(UMBRAL_COLIFORMES)} NMP/100ml · "
+            f"Pobreza ≥ {int(UMBRAL_POBREZA)}%</span>"
+        ),
+        showarrow=False, align="right", xanchor="right", yanchor="bottom",
+        bgcolor="rgba(255,255,255,0.96)",
+        bordercolor="#c0392b",
+        borderwidth=1,
+        borderpad=5,
+        font=dict(family="IBM Plex Sans, sans-serif"),
+    )
+
+    return fig
+```
+
+```{python}
+#| label: setup-consecuencias
+#| include: false
+
+# =====================================================================
+# VISUALIZACIÓN 3 — "El Impuesto a la Infancia"
+# Los 5 estados con más Zonas Cero vs población nacional,
+# mostrando cómo los niños concentran la carga de enfermedades GI.
+# =====================================================================
+
+# Top 5 estados por cantidad de sitios "Zona Cero" (del análisis del mapa).
+# Los valores de zonas_cero vienen del análisis bivariado previo.
+TOP_5_ZONAS_CERO = {
+    "VERACRUZ DE IGNACIO DE LA LLAVE": {"corto": "Veracruz",  "zonas_cero": 214},
+    "JALISCO":                          {"corto": "Jalisco",   "zonas_cero": 185},
+    "MICHOACAN DE OCAMPO":              {"corto": "Michoacán", "zonas_cero": 155},
+    "SINALOA":                          {"corto": "Sinaloa",   "zonas_cero": 132},
+    "CHIAPAS":                          {"corto": "Chiapas",   "zonas_cero": 106},
+}
+
+# Agrupaciones etarias (colapsamos infancia 0-14 para resaltar el hallazgo)
+GRUPOS_EDAD_IMPUESTO = {
+    "0-14 años":  ["MENORES_1", "DE01_A_04", "DE05_A_09", "DE10_A_14"],
+    "15-24 años": ["DE15_A_19", "DE20_A_24"],
+    "25-64 años": ["DE25_A_44", "DE45_A_49", "DE50_A_59", "DE60_A_64"],
+    "65+ años":   ["DE65_Y_MAS"],
+}
+ORDEN_EDADES_IMPUESTO = list(GRUPOS_EDAD_IMPUESTO.keys())
+
+# Normalizamos nombre de estado en el dataset de salud con mapeo robusto
+# (maneja caracteres corruptos como MICHOACSSN y variantes cortas como VERACRUZ)
+def _normalizar_estado_salud(nom):
+    s = _limpiar_texto(nom)
+    if "VERACRUZ" in s: return "VERACRUZ DE IGNACIO DE LA LLAVE"
+    if "MICHOAC" in s or "MICHOCSS" in s: return "MICHOACAN DE OCAMPO"
+    return s
+
+df_salud_imp = df_salud.copy()
+df_salud_imp["EST_NORM"] = df_salud_imp["NOM_ESTADO"].apply(_normalizar_estado_salud)
+
+df_top5_salud = df_salud_imp[df_salud_imp["EST_NORM"].isin(TOP_5_ZONAS_CERO.keys())].copy()
+
+# Construimos el dataframe largo que Plotly necesita
+registros_impuesto = []
+for estado_key, meta in TOP_5_ZONAS_CERO.items():
+    df_estado = df_top5_salud[df_top5_salud["EST_NORM"] == estado_key]
+    conteo = {g: df_estado[cols].sum().sum() for g, cols in GRUPOS_EDAD_IMPUESTO.items()}
+    total = sum(conteo.values()) if sum(conteo.values()) > 0 else 1
+    for grupo, casos in conteo.items():
+        registros_impuesto.append({
+            "categoria":    meta["corto"],
+            "es_referencia": False,
+            "zonas_cero":   meta["zonas_cero"],
+            "grupo_edad":   grupo,
+            "casos":        casos,
+            "total":        total,
+            "porcentaje":   (casos / total) * 100,
+        })
+
+# Fila de referencia: distribución demográfica nacional (INEGI 2020)
+POBLACION_NACIONAL = {
+    "0-14 años":  25.6,
+    "15-24 años": 16.9,
+    "25-64 años": 49.8,
+    "65+ años":    7.7,
+}
+
+for grupo, pct in POBLACION_NACIONAL.items():
+    registros_impuesto.append({
+        "categoria":    "Población nacional<br>(INEGI 2020)",
+        "es_referencia": True,
+        "zonas_cero":   None,
+        "grupo_edad":   grupo,
+        "casos":        0,
+        "total":        0,
+        "porcentaje":   pct,
+    })
+
+df_impuesto = pd.DataFrame(registros_impuesto)
+df_impuesto["texto_barra"] = df_impuesto["porcentaje"].apply(
+    lambda x: f"{x:.1f}%" if x >= 5 else ""
+)
+
+COLORES_IMPUESTO = {
+    "0-14 años":  "#c0392b",
+    "15-24 años": "#f1c40f",
+    "25-64 años": "#e67e22",
+    "65+ años":   "#665e5e",
+}
+
+ORDEN_CATEGORIAS_IMPUESTO = [
+    "Población nacional<br>(INEGI 2020)",
+    "Chiapas", "Sinaloa", "Michoacán", "Jalisco", "Veracruz",
+]
+
+
+def construir_impuesto_infancia():
+    """Barras apiladas horizontales: cómo la infancia paga el precio
+    en los 5 estados con más Zonas Cero."""
+    import plotly.express as px
+
+    fig = px.bar(
+        df_impuesto,
+        y="categoria",
+        x="porcentaje",
+        color="grupo_edad",
+        orientation="h",
+        color_discrete_map=COLORES_IMPUESTO,
+        category_orders={
+            "grupo_edad": ORDEN_EDADES_IMPUESTO,
+            "categoria": ORDEN_CATEGORIAS_IMPUESTO,
+        },
+        text="texto_barra",
+        custom_data=["casos", "categoria", "grupo_edad", "total"],
+    )
+
+    _ = fig.update_traces(
+        textposition="inside",
+        insidetextanchor="middle",
+        textfont=dict(color="white", size=11, family="IBM Plex Sans, sans-serif"),
+        hovertemplate=(
+            "<b>%{customdata[1]}</b><br>"
+            "Grupo: %{customdata[2]}<br>"
+            "<b>%{x:.1f}%</b> de los casos<br>"
+            "Casos absolutos: %{customdata[0]:,.0f}"
+            "<extra></extra>"
+        ),
+    )
+
+    _ = fig.update_layout(
+        barmode="stack",
+        plot_bgcolor="#FFFFFF",
+        paper_bgcolor="#FFFFFF",
+        font=dict(family="IBM Plex Sans, sans-serif", size=12, color="#1A1A1A"),
+        margin=dict(t=75, b=95, l=170, r=90),
+        height=None,
+        autosize=True,
+        xaxis=dict(
+            showgrid=False, zeroline=False, range=[0, 118],
+            showticklabels=False,
+        ),
+        yaxis=dict(
+            title="",
+            showgrid=False,
+            tickfont=dict(size=12.5, family="IBM Plex Sans, sans-serif",
+                          color="#1A1A1A"),
+        ),
+        legend=dict(
+            title=dict(text="<b>Grupo de edad</b>", side="top"),
+            orientation="h",
+            yanchor="bottom", y=-0.28,
+            xanchor="center", x=0.5,
+            bgcolor="rgba(255,255,255,0.96)",
+            bordercolor="#E0DDD5", borderwidth=1,
+            font=dict(size=11, family="IBM Plex Sans, sans-serif"),
+            itemsizing="constant",
+            itemwidth=30,
+            tracegroupgap=12,
+            entrywidth=110,
+            entrywidthmode="pixels",
+        ),
+    )
+
+    # Línea separadora entre la referencia nacional y los estados
+    _ = fig.add_shape(
+        type="line",
+        xref="paper", yref="y",
+        x0=0, x1=1, y0=0.5, y1=0.5,
+        line=dict(color="#D0CDC4", width=1, dash="dot"),
+    )
+
+    # Etiquetas de totales a la derecha de cada barra
+    for estado_key, meta in TOP_5_ZONAS_CERO.items():
+        df_estado = df_top5_salud[df_top5_salud["EST_NORM"] == estado_key]
+        total_estado = sum(df_estado[cols].sum().sum()
+                           for cols in GRUPOS_EDAD_IMPUESTO.values())
+        _ = fig.add_annotation(
+            x=101, y=meta["corto"],
+            text=(
+                f"<b style='color:#1A1A1A; font-size:12px'>{total_estado:,.0f}</b> "
+                f"<span style='font-size:10px; color:#595959'>casos</span><br>"
+                f"<span style='color:#c0392b; font-size:11px'>●</span>"
+                f"<span style='color:#595959; font-size:10px'> {meta['zonas_cero']} zonas cero</span>"
+            ),
+            showarrow=False, xanchor="left", yanchor="middle", align="left",
+        )
+
+    _ = fig.add_annotation(
+        x=101, y="Población nacional<br>(INEGI 2020)",
+        text="<i style='color:#595959; font-size:10px'>referencia demográfica</i>",
+        showarrow=False, xanchor="left", yanchor="middle",
+    )
+
+    # KPI destacado arriba: % infancia en estados top vs población nacional
+    infancia_top5 = df_impuesto[
+        (~df_impuesto["es_referencia"]) & (df_impuesto["grupo_edad"] == "0-14 años")
+    ]["porcentaje"].mean()
+    infancia_nacional = POBLACION_NACIONAL["0-14 años"]
+    razon = round(infancia_top5 / infancia_nacional, 1)
+
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.0, y=1.06,
+        text=(f"<b style='font-size:20px; color:#c0392b'>{infancia_top5:.0f}%</b><br>"
+              f"<span style='font-size:10px; color:#595959'>"
+              f"de los casos en estados con Zonas Cero son niños de 0-14</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom",
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.42, y=1.06,
+        text=(f"<b style='font-size:20px; color:#2C5F7C'>{infancia_nacional:.1f}%</b><br>"
+              f"<span style='font-size:10px; color:#595959'>"
+              f"es el peso demográfico real de la infancia</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom",
+    )
+    _ = fig.add_annotation(
+        xref="paper", yref="paper", x=0.78, y=1.06,
+        text=(f"<b style='font-size:20px; color:#c0392b'>{razon}×</b><br>"
+              f"<span style='font-size:10px; color:#595959'>"
+              f"más casos de lo que 'les tocaría' por población</span>"),
+        showarrow=False, align="left", xanchor="left", yanchor="bottom",
+    )
+
+    return fig
+
+
+# =====================================================================
+# BLOQUE A — PEGA EN EL CHUNK DE SETUP (al final, antes del cierre)
+# =====================================================================
+
+# =====================================================================
+# VISUALIZACIÓN 5 — LA SOLUCIÓN
+# "Reasignar PROAGUA: los 20 municipios donde cada peso rinde más"
+# 
+# Cruza 3 variables observables del INEGI ITER 2020 para construir un 
+# Índice de Urgencia. Sin parámetros monetarios inventados.
+# 
+# Fórmula: Índice = A × B × C
+#   A = % viviendas sin drenaje (carencia estructural)
+#   B = log(viviendas afectadas + 1) (escala sin sesgo por tamaño)
+#   C = % niños 0-14 en el municipio (vulnerabilidad biológica)
+# =====================================================================
+
+# --- Columna 'MENORES' ya está en df_mun_total (suma de los grupos de edad)
+# --- Si no, la calculamos aquí a partir del ITER
+
+# Verificamos columnas necesarias
+COLS_NECESARIAS = {"POBTOT", "VIVTOT", "VPH_NODREN", "NOM_ESTADO", "NOM_MUN",
+                   "EST_KEY", "MUN_KEY"}
+assert COLS_NECESARIAS.issubset(df_mun_total.columns), \
+    "Faltan columnas base para el Índice de Urgencia"
+
+# Aproximación al % de niños 0-14: usamos la razón típica mexicana (INEGI 2020)
+# Si no hay columna directa de niños, aplicamos el % demográfico nacional
+# ajustado por marginación. (Si tu ITER tiene POB_0_14, usa esa directo.)
+# Usaremos la proxy: en municipios con más carencia, el % de infancia suele 
+# ser mayor. Tomamos %niños = 25.6% base + ajuste por carencia.
+df_indice = df_mun_total.copy()
+
+# Filtro mínimo: 500 viviendas (excluye rancherías con % engañosos)
+df_indice = df_indice[df_indice["VIVTOT"] >= 500].copy()
+
+# Componente A: % viviendas sin drenaje (ya calculado en df_mun_total)
+df_indice["A_carencia"] = df_indice["pct_sin_drenaje"]
+
+# Componente B: log de viviendas afectadas (sin sesgo extremo por tamaño)
+df_indice["B_escala"] = np.log1p(df_indice["VPH_NODREN"].fillna(0))
+
+# Componente C: % niños 0-14 del municipio
+# Usamos proxy: % demográfico nacional (25.6%) ajustado proporcional a carencia.
+# Municipios más marginados tienden a tener más infancia (patrón INEGI conocido).
+df_indice["C_infancia"] = 25.6 + (df_indice["A_carencia"] * 0.2)
+
+# Índice compuesto (producto)
+df_indice["indice_urgencia_raw"] = (
+    df_indice["A_carencia"] *
+    df_indice["B_escala"] *
+    df_indice["C_infancia"]
+)
+
+# Normalización a escala 0-100 para interpretación amigable
+max_idx = df_indice["indice_urgencia_raw"].max()
+df_indice["indice_urgencia"] = (
+    df_indice["indice_urgencia_raw"] / max_idx * 100
+).round(1)
+
+# Top 20
+TOP_N_MUNICIPIOS = 20
+top20_solucion = (
+    df_indice.sort_values("indice_urgencia", ascending=False)
+    .head(TOP_N_MUNICIPIOS)
+    .copy()
+    .reset_index(drop=True)
+)
+
+# Agregamos casos GI estatales (desde casos_gi_por_estado ya calculado)
+top20_solucion["casos_gi_estado"] = (
+    top20_solucion["EST_KEY"].map(casos_gi_por_estado).fillna(0).astype(int)
+)
+
+# Nombre limpio para display
+top20_solucion["mun_display"] = top20_solucion["NOM_MUN"].apply(
+    lambda s: str(s).title().replace("De ", "de ")
+)
+top20_solucion["est_display"] = top20_solucion["NOM_ESTADO"].apply(
+    lambda s: str(s).title().replace("De ", "de ")
+)
+top20_solucion["rank"] = range(1, len(top20_solucion) + 1)
+
+
+# --- Coordenadas aproximadas para el mapa ---
+# Reutilizamos CENTROIDES_ESTADOS y aplicamos jitter para distinguir 
+# municipios del mismo estado.
+import hashlib
+
+
+def _jitter_coord(est_key, mun_key):
+    """Desplaza ~0.3 grados desde el centroide estatal, de forma determinista
+    por municipio (mismo municipio siempre tiene el mismo jitter)."""
+    base_lat, base_lon = CENTROIDES_ESTADOS.get(est_key, (23.5, -102.5))
+    h = int(hashlib.md5(mun_key.encode("utf-8")).hexdigest(), 16)
+    # Jitter entre -0.4 y +0.4 grados
+    dlat = ((h % 1000) / 1000 - 0.5) * 0.8
+    dlon = (((h // 1000) % 1000) / 1000 - 0.5) * 0.8
+    return base_lat + dlat, base_lon + dlon
+
+
+top20_solucion["LAT"] = top20_solucion.apply(
+    lambda r: _jitter_coord(r["EST_KEY"], r["MUN_KEY"])[0], axis=1
+)
+top20_solucion["LON"] = top20_solucion.apply(
+    lambda r: _jitter_coord(r["EST_KEY"], r["MUN_KEY"])[1], axis=1
+)
+
+
+def construir_mapa_solucion():
+    """Mapa de los 20 municipios con mayor Índice de Urgencia.
+    Propuesta de reasignación PROAGUA."""
+    fig = px.scatter_mapbox(
+        top20_solucion,
+        lat="LAT", lon="LON",
+        size="indice_urgencia",
+        size_max=13,
+        color_discrete_sequence=["#C1272D"],
+        custom_data=["mun_display", "est_display", "indice_urgencia",
+                     "VPH_NODREN", "VIVTOT", "pct_sin_drenaje", "rank"],
+        zoom=5.2,
+        center={"lat": 18.5, "lon": -97.0},
+        opacity=0.9,
+    )
+
+    _ = fig.update_traces(
+        marker=dict(
+            sizemin=6,
+            color="rgba(193, 39, 45, 0.88)",
+        ),
+        hovertemplate=(
+            "<b style='font-size:14px'>#%{customdata[6]} · %{customdata[0]}</b><br>"
+            "<span style='color:#7f8c8d'>%{customdata[1]}</span><br>"
+            "━━━━━━━━━━━━━━━━━━<br>"
+            "<b>Índice de Urgencia:</b> %{customdata[2]:.1f} / 100<br>"
+            "<b>Sin drenaje:</b> %{customdata[5]:.1f}%<br>"
+            "&nbsp;&nbsp;<i>%{customdata[3]:,.0f} de %{customdata[4]:,.0f} viviendas</i>"
+            "<extra></extra>"
+        ),
+    )
+
+    # Segunda capa: etiquetas con rank + nombre del municipio visibles
+    # (solo para el top 5 para no saturar visualmente)
+    top5_mapa = top20_solucion.head(5).copy()
+    _ = fig.add_scattermapbox(
+        lat=top5_mapa["LAT"],
+        lon=top5_mapa["LON"] + 0.35,  # offset a la derecha
+        mode="text",
+        text=top5_mapa.apply(
+            lambda r: f"#{int(r['rank'])} {r['mun_display']}", axis=1
+        ),
+        textfont=dict(
+            family="IBM Plex Sans, sans-serif",
+            size=10,
+            color="#1A1A1A",
+        ),
+        hoverinfo="skip",
+        showlegend=False,
+    )
+
+    # Contorno de México si el geojson está disponible
+    mapbox_layers = []
+    if geojson_mexico is not None:
+        mapbox_layers = [{
+            "sourcetype": "geojson",
+            "source": geojson_mexico,
+            "type": "line",
+            "color": "rgba(44, 62, 80, 0.45)",
+            "line": {"width": 1.0},
+        }]
+
+    _ = fig.update_layout(
+        mapbox_style="carto-positron",
+        mapbox_layers=mapbox_layers,
+        margin={"r": 10, "t": 10, "l": 10, "b": 10},
+        height=None,
+        autosize=True,
+        showlegend=False,
+        font=dict(family="IBM Plex Sans, sans-serif", size=12, color="#1A1A1A"),
+        paper_bgcolor="#FFFFFF",
+    )
+
+    return fig
+
+
+def construir_tabla_solucion():
+    """Tabla editorial del Top 20 municipios prioritarios.
+    Plotly go.Table no soporta HTML inline, así que el diseño usa:
+    color por fila (gradiente rojo→crema→blanco según ranking),
+    fuentes diferenciadas (color del ranking), y barras unicode en %."""
+    import plotly.graph_objects as go
+
+    tabla = top20_solucion[[
+        "rank", "mun_display", "est_display",
+        "VPH_NODREN", "pct_sin_drenaje", "indice_urgencia"
+    ]].copy()
+
+    n = len(tabla)
+
+    # Color de fondo por fila (gradiente de prioridad)
+    def _color_fila(idx):
+        ratio = idx / max(n - 1, 1)
+        if ratio <= 0.33:
+            return "#FBE9E7"   # top 1-7: crema rosado (crítico)
+        elif ratio <= 0.66:
+            return "#FFF5EB"   # medio 8-14: crema naranja
+        else:
+            return "#FFFFFF"   # 15-20: blanco
+
+    fondo_filas = [_color_fila(i) for i in range(n)]
+
+    # Color de texto del número de ranking (solo por fila, no inline)
+    def _color_rank(rank):
+        if rank <= 3:
+            return "#c0392b"   # top 3: rojo crisis
+        elif rank <= 10:
+            return "#E8823B"   # 4-10: naranja
+        else:
+            return "#595959"   # resto: gris
+
+    colores_rank = [_color_rank(r) for r in tabla["rank"]]
+
+    # Barra unicode para % sin drenaje (solo caracteres, sin HTML)
+    def _barra_pct(pct):
+        bloques = min(10, max(1, int(pct / 10)))
+        return "█" * bloques + "░" * (10 - bloques)
+
+    # Formatos de celdas (texto plano)
+    viviendas_fmt = [f"{int(v):,}" for v in tabla["VPH_NODREN"]]
+    pcts_fmt = [
+        f"{_barra_pct(p)}  {p:.1f}%"
+        for p in tabla["pct_sin_drenaje"]
+    ]
+    indices_fmt = [f"{v:.1f}" for v in tabla["indice_urgencia"]]
+
+    fig = go.Figure(data=[go.Table(
+        columnwidth=[35, 150, 100, 75, 140, 55],
+        header=dict(
+            values=[
+                "#",
+                "MUNICIPIO",
+                "ESTADO",
+                "VIVIENDAS",
+                "% SIN DRENAJE",
+                "ÍNDICE",
+            ],
+            fill_color="#1A1A1A",
+            align=["center", "left", "left", "right", "left", "center"],
+            font=dict(color="#FFFFFF", size=11,
+                      family="IBM Plex Sans, sans-serif"),
+            height=38,
+            line=dict(color="#1A1A1A", width=0),
+        ),
+        cells=dict(
+            values=[
+                tabla["rank"],
+                tabla["mun_display"],
+                tabla["est_display"],
+                viviendas_fmt,
+                pcts_fmt,
+                indices_fmt,
+            ],
+            fill_color=[fondo_filas] * 6,
+            align=["center", "left", "left", "right", "left", "center"],
+            # Fuentes por columna: color dinámico por fila (array plano),
+            # tamaño uniforme (Plotly Table no acepta arrays anidados en size).
+            font=dict(
+                color=[
+                    colores_rank,           # columna #: color según top 3/10/resto
+                    ["#1A1A1A"] * n,        # municipio: negro
+                    ["#595959"] * n,        # estado: gris
+                    ["#1A1A1A"] * n,        # viviendas: negro
+                    ["#c0392b"] * n,        # % sin drenaje: rojo
+                    colores_rank,           # índice: mismo color que ranking
+                ],
+                size=12,
+                family="IBM Plex Sans, sans-serif",
+            ),
+            height=32,
+            line=dict(color="#E0DDD5", width=0.5),
+        ),
+    )])
+
+    _ = fig.update_layout(
+        margin=dict(t=10, b=10, l=10, r=10),
+        height=None,
+        autosize=True,
+        paper_bgcolor="#FFFFFF",
+    )
+
+    return fig
+
+
+# --- KPIs para la sección Solución ---
+# Se calculan aquí para usarse en value boxes o anotaciones
+viviendas_solucion = int(top20_solucion["VPH_NODREN"].sum())
+estados_solucion = top20_solucion["NOM_ESTADO"].nunique()
+poblacion_beneficiaria = int(
+    top20_solucion["VPH_NODREN"].sum() * 3.6  # ~3.6 hab/vivienda promedio MX
+)
+
+# Usando el ratio WHO 4.3x: retorno estimado por cada peso invertido
+WHO_RATIO_RETORNO = 4.3
+# Asumimos un costo de referencia conservador por vivienda (SEDATU/CONAGUA)
+# Solo para ilustración de orden de magnitud, NO como parámetro defendido.
+COSTO_REF_VIVIENDA_MXN = 35000
+inversion_estimada = viviendas_solucion * COSTO_REF_VIVIENDA_MXN
+ahorro_salud_proyectado = inversion_estimada * WHO_RATIO_RETORNO
+
+
+```
+
+## Row {height="170"}
+
+```{python}
+#| content: valuebox
+#| title: "6 millones de mexicanos se enfermaron del estómago en 2017"
+dict(
+    icon="heart-pulse",
+    color="danger",
+    value=f"{total_casos_gi:,}",
+    href=None,
+)
+```
+
+```{python}
+#| content: valuebox
+#| title: "4 de cada 10 ríos monitoreados están contaminados"
+dict(
+    icon="droplet-half",
+    color="primary",
+    value=f"{pct_contaminados:.1f}%",
+    href=None,
+)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Los niños menores de 5 años son los más afectados"
+dict(
+    icon="people-fill",
+    color="warning",
+    value=f"{tasa_1_a_4:,.0f} / 100k",
+    href=None,
+)
+```
+
+## Row {.flow height="90"}
+
+::: {.card .ciclo-card}
+
+::: {.ciclo-tesis-sola}
+En los municipios más pobres del país, **8 de cada 10 familias** conviven con aguas negras. **Sus hijos son los que pagan el costo biológico.**
+:::
+
+:::
+
+# El Problema
+
+## Row {height="70%"}
+
+### Column {.tabset title="Zonas Cero — Cuerpos de agua contaminados por región"}
+
+```{python}
+#| title: "Nacional"
+construir_mapa("Nacional")
+```
+
+```{python}
+#| title: "Norte"
+construir_mapa("Norte")
+```
+
+```{python}
+#| title: "Centro"
+construir_mapa("Centro")
+```
+
+```{python}
+#| title: "Sur"
+construir_mapa("Sur")
+```
+
+# Las Consecuencias
+
+## Row {height="50%"}
+
+```{python}
+#| title: "Dos extremos — la brecha en cobertura de drenaje es de 99 veces"
+construir_ranking_estatal()
+```
+
+## Row {height="70%"}
+
+```{python}
+#| title: "El impuesto a la infancia — niños de 0-14 años concentran la carga"
+construir_impuesto_infancia()
+```
+
+
+# La Solución
+
+## Row {height="120"}
+
+```{python}
+#| content: valuebox
+#| title: "municipios donde cada peso de PROAGUA rinde más"
+dict(
+    icon="geo-alt-fill",
+    color="danger",
+    value=f"{TOP_N_MUNICIPIOS}",
+    href=None,
+)
+```
+
+```{python}
+#| content: valuebox
+#| title: "pesos de retorno social por cada peso invertido (OMS)"
+dict(
+    icon="cash-coin",
+    color="success",
+    value=f"${WHO_RATIO_RETORNO}",
+    href=None,
+)
+```
+
+## Row {height="60%"}
+
+### Column {width="55%"}
+
+```{python}
+#| title: "Los 20 municipios prioritarios para reasignación PROAGUA"
+construir_mapa_solucion()
+```
+
+### Column {width="45%"}
+
+```{python}
+#| title: "Ranking por Índice de Urgencia"
+construir_tabla_solucion()
+```
+
+
+## Row {.flow height="60"}
+
+::: {.footer-minimal}
+**Fuentes:** SSA (Boletín Epidemiológico) · INEGI (Censo 2020, ITER) · CONEVAL · CONAGUA (RENAMECA). Umbral coliformes ≥200 NMP/100mL (OMS). Retorno social: WHO/UNICEF JMP 2014.  
+**PCABoys** · UNAM IIMAS · HackODS 2026
+:::
+

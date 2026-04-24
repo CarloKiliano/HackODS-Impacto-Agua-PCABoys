@@ -1,0 +1,839 @@
+/*-- scss:defaults --*/
+
+/* =======================================================================
+   PCABoys — El Ciclo de la Inacción
+   
+   Estilo: Editorial Institucional
+   Inspirado en reports del World Bank, CEPAL, IBM Research, The Economist.
+   
+   Principios:
+   - Paleta monocromática con 1 acento fuerte (#C1272D rojo institucional)
+   - Tipografía IBM Plex (serif para títulos, sans para cuerpo)
+   - Aire blanco abundante, jerarquía por tipografía no por color
+   - Números en tabular-nums para alineación perfecta
+   ======================================================================= */
+
+// === Importar tipografía IBM Plex desde Google Fonts ===
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&display=swap');
+
+// === Paleta base (sobrescribe Bootstrap) ===
+$primary:   #2C5F7C;  // Azul petróleo sobrio
+$secondary: #595959;  // Gris medio
+$success:   #4A7C59;  // Verde bosque (solo para soluciones)
+$info:      #2C5F7C;
+$warning:   #B8860B;  // Ámbar oscuro (reemplaza el naranja tierra)
+$danger:    #C1272D;  // ACENTO ÚNICO: rojo institucional
+$light:     #F5F3EE;
+$dark:      #1A1A1A;
+
+$body-bg:    #FFFFFF;
+$body-color: #1A1A1A;
+
+// === Fuentes ===
+$font-family-sans-serif: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont,
+                         'Segoe UI', sans-serif;
+$font-family-serif:      'IBM Plex Serif', Georgia, 'Times New Roman', serif;
+
+// === Variables de value boxes (específicas de Quarto) ===
+$valuebox-bg-primary:   #2C5F7C;
+$valuebox-bg-secondary: #595959;
+$valuebox-bg-success:   #4A7C59;
+$valuebox-bg-info:      #2C5F7C;
+$valuebox-bg-warning:   #B8860B;
+$valuebox-bg-danger:    #C1272D;
+$valuebox-bg-light:     #F5F3EE;
+$valuebox-bg-dark:      #1A1A1A;
+
+
+/*-- scss:rules --*/
+
+/* --- Tipografía base --- */
+body {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 15px;
+  color: #1A1A1A;
+  background-color: #FFFFFF;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'tnum' 1, 'ss01' 1;  /* números tabulares */
+}
+
+h1, h2, h3, h4, h5, h6,
+.card-header,
+.navbar-title,
+.navbar-brand {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* --- Navbar institucional --- */
+.navbar {
+  background-color: #1A1A1A !important;
+  border-bottom: 1px solid #000 !important;
+  padding: 0.75rem 1.5rem !important;
+  min-height: 64px;
+}
+
+.navbar .navbar-title {
+  color: #FFFFFF !important;
+  font-family: 'IBM Plex Serif', serif !important;
+  font-weight: 500 !important;
+  font-size: 1.2rem !important;
+  letter-spacing: -0.015em;
+}
+
+.navbar-brand {
+  color: #FFFFFF !important;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Logos en el navbar */
+.navbar-brand img {
+  height: 40px !important;
+  width: auto;
+  /* Quitamos el filtro: el logo UNAM ya tiene versión para fondo oscuro */
+  opacity: 0.95;
+}
+
+.navbar .nav-link {
+  color: rgba(255, 255, 255, 0.6) !important;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 400;
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+  padding: 0.5rem 1rem !important;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.navbar .nav-link:hover {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.navbar .nav-link.active {
+  color: #FFFFFF !important;
+  border-bottom-color: #C1272D !important;  /* acento rojo */
+}
+
+/* --- Cards minimalistas --- */
+.card {
+  border: 1px solid #E0DDD5 !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  background-color: #FFFFFF !important;
+}
+
+.card-header {
+  background-color: #FFFFFF !important;
+  border-bottom: 1px solid #E0DDD5 !important;
+  padding: 0.9rem 1.2rem !important;
+  font-family: 'IBM Plex Serif', serif;
+  font-weight: 500;
+  font-size: 0.88rem;
+  color: #1A1A1A;
+  letter-spacing: 0.02em;
+  text-transform: none;  /* quitamos uppercase, es el look editorial */
+}
+
+/* --- Value boxes estilo KPI report editorial --- */
+/* Gradientes direccionales sutiles: 135deg de color base a 8% más oscuro.
+   Crean profundidad sin sacrificar autoridad editorial. */
+.value-box {
+  border-radius: 2px !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.value-box.bg-danger {
+  background: linear-gradient(135deg, #C1272D 0%, #A71E23 100%) !important;
+}
+
+.value-box.bg-primary {
+  background: linear-gradient(135deg, #2C5F7C 0%, #224C63 100%) !important;
+}
+
+.value-box.bg-warning {
+  background: linear-gradient(135deg, #B8860B 0%, #9A6E09 100%) !important;
+}
+
+.value-box.bg-success {
+  background: linear-gradient(135deg, #4A7C59 0%, #3C6648 100%) !important;
+}
+
+.value-box.bg-secondary {
+  background: linear-gradient(135deg, #595959 0%, #404040 100%) !important;
+}
+
+/* Acento sutil: borde izquierdo más intenso tipo "editorial mark" */
+.value-box::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  z-index: 1;
+}
+
+.value-box-title {
+  font-family: 'IBM Plex Sans', sans-serif !important;
+  font-size: 0.78rem !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.09em !important;
+  opacity: 0.95;
+  line-height: 1.4 !important;
+  margin-bottom: 0.6rem !important;
+}
+
+/* Número reducido de 2.4rem a 1.95rem: blinda C3 (no luce tipo plantilla)
+   y mantiene legibilidad. El dato sigue siendo el protagonista pero NO
+   el único elemento que compite por atención. */
+.value-box-value {
+  font-family: 'IBM Plex Sans', sans-serif !important;
+  font-size: 1.95rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.1 !important;
+  font-feature-settings: 'tnum' 1, 'ss01' 1;
+}
+
+/* --- Texto de los cards (la tesis, etc.) --- */
+.card p,
+.card li {
+  font-family: 'IBM Plex Sans', sans-serif;
+  line-height: 1.7;
+  font-size: 0.95rem;
+  color: #333333;
+}
+
+.card strong {
+  color: #1A1A1A;
+  font-weight: 600;
+}
+
+/* --- Blockquote editorial --- */
+blockquote {
+  font-family: 'IBM Plex Serif', serif !important;
+  border-left: 3px solid #C1272D !important;
+  padding: 0.4rem 0 0.4rem 1.2rem !important;
+  margin: 1.2rem 0 !important;
+  color: #595959 !important;
+  font-style: italic !important;
+  font-size: 1.02rem !important;
+  font-weight: 400 !important;
+}
+
+/* --- Enlaces --- */
+a {
+  color: #C1272D;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(193, 39, 45, 0.3);
+  transition: border-color 0.15s ease;
+}
+
+a:hover {
+  border-bottom-color: #C1272D;
+}
+
+/* --- Fix triple render Plotly (lo que ya teníamos) --- */
+[class*="value-box"].bg-primary *,
+[class*="value-box"].bg-danger *,
+[class*="value-box"].bg-secondary *,
+[class*="value-box"].bg-success *,
+[class*="value-box"].bg-dark * {
+  color: #FFFFFF !important;
+}
+
+[class*="value-box"].bg-warning *,
+[class*="value-box"].bg-light * {
+  color: #1A1A1A !important;
+}
+
+.bslib-value-box.bg-primary *,
+.bslib-value-box.bg-danger *,
+.bslib-value-box.bg-secondary *,
+.bslib-value-box.bg-success * {
+  color: #FFFFFF !important;
+}
+
+.bslib-value-box.bg-warning *,
+.bslib-value-box.bg-light * {
+  color: #1A1A1A !important;
+}
+
+/* --- Íconos ODS dentro de value boxes (los vamos a agregar via markdown) --- */
+.ods-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  margin-right: 8px;
+}
+
+/* --- Subtítulos de sección (bajo el título de cada pestaña) --- */
+.page-subtitle {
+  font-family: 'IBM Plex Serif', serif;
+  font-size: 0.95rem;
+  font-style: italic;
+  color: #595959;
+  margin: 0 0 1rem 0;
+  padding: 0;
+  line-height: 1.5;
+}
+
+/* --- Footer con fuentes --- */
+.dashboard-footer {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.78rem;
+  color: #8A8A8A;
+  padding: 0.5rem 1.5rem;
+  border-top: 1px solid #E0DDD5;
+  background-color: #F5F3EE;
+}
+
+.dashboard-footer strong {
+  color: #595959;
+}
+
+/* --- Scrollbar sutil --- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #D0CDC4;
+  border-radius: 3px;
+}
+
+/* === Diagrama de 4 pasos del bucle (HORIZONTAL FORZADO) ===
+   Ahora generado desde fences Quarto ::: (sin HTML en el .qmd).
+   Las flechas se inyectan vía pseudo-elementos ::after en CSS puro.
+   =================================================================== */
+
+/* Card contenedora del ciclo: sin header, padding mínimo */
+.ciclo-card > .card-header {
+  display: none !important;
+}
+
+.ciclo-card .card-body,
+.ciclo-card > .card-body {
+  padding: 12px 16px !important;
+}
+
+.ciclo-container {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  justify-content: space-between !important;
+  gap: 24px;
+  padding: 4px 0;
+  width: 100%;
+}
+
+.ciclo-container > .ciclo-paso {
+  flex: 1 1 0 !important;
+  min-width: 0;
+  position: relative;
+}
+
+/* Flechas: pseudo-elemento sobre cada paso excepto el último */
+.ciclo-container > .ciclo-paso:not(:last-child)::after {
+  content: "→";
+  position: absolute;
+  right: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.1rem;
+  color: #B4B2A9;
+  font-weight: 300;
+  font-family: 'IBM Plex Sans', sans-serif;
+  pointer-events: none;
+}
+
+.ciclo-paso {
+  background-color: #F5F3EE;
+  border: 1px solid #E0DDD5;
+  border-left: 3px solid #2C5F7C;
+  padding: 10px 12px;
+  border-radius: 2px;
+  min-height: 80px;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* El primer elemento generado por el fence ::: es el <p> con **strong** */
+.ciclo-paso > p:first-child,
+.ciclo-paso > p:first-child strong {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 0.82rem;
+  color: #1A1A1A;
+  display: block;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+.ciclo-paso > p:not(:first-child) {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.72rem;
+  color: #595959;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.ciclo-paso-final {
+  border-left-color: #C1272D;
+  background-color: #FDF5F5;
+}
+
+.ciclo-paso-final > p:first-child,
+.ciclo-paso-final > p:first-child strong {
+  color: #C1272D;
+}
+
+.ciclo-frase {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-style: italic;
+  font-size: 0.98rem;
+  text-align: center;
+  color: #595959;
+  padding: 10px 24px 4px 24px;
+  border-top: 1px solid #E0DDD5;
+  margin-top: 10px;
+}
+
+/* ===================================================================
+   ANIMACIONES — Capa de pulido profesional
+   Filosofía: guiar al ojo, nunca distraer.
+   =================================================================== */
+
+/* --- Variables globales de animación --- */
+$ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+$ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+$duration-fast: 200ms;
+$duration-medium: 400ms;
+$duration-slow: 600ms;
+
+
+/* --- Transición global: cualquier cambio de color o sombra es suave --- */
+a,
+.card,
+.value-box,
+.ciclo-paso,
+.nav-link,
+button,
+.ciclo-container > .ciclo-paso::after {
+  transition: color $duration-fast $ease-standard,
+              background-color $duration-fast $ease-standard,
+              border-color $duration-fast $ease-standard,
+              box-shadow $duration-fast $ease-standard,
+              transform $duration-fast $ease-standard;
+}
+
+
+/* --- Keyframes base --- */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+
+/* --- Entrada escalonada de value boxes --- */
+.value-box {
+  animation: fadeInUp $duration-slow $ease-decelerate both;
+}
+
+/* Escalonado de KPIs: usamos nth-child con selector más específico */
+.value-box {
+  animation-delay: 50ms;
+}
+.value-box ~ .value-box {
+  animation-delay: 130ms;
+}
+.value-box ~ .value-box ~ .value-box {
+  animation-delay: 210ms;
+}
+
+
+/* --- Entrada escalonada de los 4 pasos del ciclo --- */
+.ciclo-paso {
+  animation: fadeInUp $duration-medium $ease-decelerate both;
+}
+
+/* Usamos nth-child con especificidad alta para evitar conflictos.
+   Ahora los pasos son hermanos directos 1,2,3,4 (las flechas ya no son
+   elementos DOM, son pseudo-elementos ::after en CSS puro). */
+.ciclo-container .ciclo-paso:nth-child(1) { animation-delay: 350ms !important; }
+.ciclo-container .ciclo-paso:nth-child(2) { animation-delay: 450ms !important; }
+.ciclo-container .ciclo-paso:nth-child(3) { animation-delay: 550ms !important; }
+.ciclo-container .ciclo-paso:nth-child(4) { animation-delay: 650ms !important; }
+
+
+/* --- Entrada de cards de viz (NO value boxes) --- */
+.card:not(.bslib-value-box):not(.value-box) {
+  animation: fadeIn $duration-slow $ease-decelerate both;
+  animation-delay: 800ms;
+}
+
+/* --- Hover en value boxes: elevación sutil --- */
+.value-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  cursor: default;
+}
+
+
+/* --- Hover en cajas del ciclo: elevación + borde engrosado --- */
+.ciclo-paso:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  border-left-width: 5px;
+  padding-left: 10px;  /* compensa el aumento del borde */
+}
+
+
+/* --- Navbar: subrayado rojo que crece desde el centro --- */
+.navbar .nav-link {
+  position: relative;
+  border-bottom: none !important;  /* reemplazamos el border por pseudo-elemento */
+}
+
+.navbar .nav-link::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background-color: #C1272D;
+  transition: width $duration-fast $ease-standard,
+              left $duration-fast $ease-standard;
+}
+
+.navbar .nav-link:hover::after,
+.navbar .nav-link.active::after {
+  width: 60%;
+  left: 20%;
+}
+
+
+/* --- Enlaces: subrayado que se expande en hover --- */
+a {
+  position: relative;
+  border-bottom: none;
+  background-image: linear-gradient(#C1272D, #C1272D);
+  background-size: 0% 1px;
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  transition: background-size $duration-fast $ease-standard,
+              color $duration-fast $ease-standard;
+}
+
+a:hover {
+  background-size: 100% 1px;
+}
+
+
+/* --- Scrollbar más sutil con fade --- */
+::-webkit-scrollbar-thumb {
+  transition: background-color $duration-fast $ease-standard;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #8A8780;
+}
+
+
+/* --- Respeto a usuarios con motion reducido --- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===================================================================
+   FIX — Elementos que no estaban animando
+   =================================================================== */
+
+/* Value boxes: aplicar a todas las variantes que usa Quarto */
+.bslib-value-box,
+.value-box,
+.quarto-dashboard-card.value-box {
+  animation: fadeInUp $duration-slow $ease-decelerate both !important;
+}
+
+/* Escalonado por posición entre hermanos value-box */
+.bslib-value-box:nth-of-type(1),
+.value-box:nth-of-type(1) {
+  animation-delay: 50ms !important;
+}
+
+.bslib-value-box:nth-of-type(2),
+.value-box:nth-of-type(2) {
+  animation-delay: 150ms !important;
+}
+
+.bslib-value-box:nth-of-type(3),
+.value-box:nth-of-type(3) {
+  animation-delay: 250ms !important;
+}
+
+/* Frase editorial: aparece después de las 4 cajas del ciclo */
+.ciclo-frase {
+  animation: fadeIn $duration-medium $ease-decelerate both;
+  animation-delay: 750ms;
+}
+
+/* ===================================================================
+   TABSETS EDITORIALES — "Segmented control" tipo iOS
+   Objetivo: NO deben verse como pestañas de navegador/página web.
+   Deben leer como "selector de capa" editorial, integrado al card.
+   =================================================================== */
+
+/* Nav de tabs: alineado a la derecha del card-header, estilo minimalista */
+.card .nav-tabs,
+.card-header .nav-tabs {
+  border-bottom: none !important;
+  gap: 2px;
+  padding: 2px;
+  background: #F5F3EE;
+  border-radius: 4px;
+  display: inline-flex !important;
+  margin-left: auto;
+}
+
+/* Cada tab-link: pill discreto */
+.card .nav-tabs .nav-link,
+.card-header .nav-tabs .nav-link {
+  border: none !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  color: #595959 !important;
+  font-family: 'IBM Plex Sans', sans-serif !important;
+  font-size: 0.78rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+  padding: 5px 12px !important;
+  margin: 0 !important;
+  transition: all 180ms $ease-standard !important;
+  text-transform: none !important;
+  line-height: 1.3 !important;
+}
+
+.card .nav-tabs .nav-link:hover,
+.card-header .nav-tabs .nav-link:hover {
+  background: rgba(44, 95, 124, 0.08) !important;
+  color: #2C5F7C !important;
+}
+
+/* Tab activo: ancla visual con el azul primario editorial */
+.card .nav-tabs .nav-link.active,
+.card-header .nav-tabs .nav-link.active {
+  background: #FFFFFF !important;
+  color: #1A1A1A !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08),
+              0 0 0 1px rgba(44, 95, 124, 0.15) !important;
+  font-weight: 600 !important;
+}
+
+/* Indicador rojo discreto en el tab activo (acento editorial) */
+.card .nav-tabs .nav-link.active::before,
+.card-header .nav-tabs .nav-link.active::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #C1272D;
+  opacity: 0;
+}
+
+/* Contenedor del tab content: sin bordes extra */
+.tab-content {
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* Remover cualquier badge "tabset-like" que quarto agregue por defecto */
+.quarto-dashboard-card > .card-header {
+  align-items: center;
+}
+
+/* ===================================================================
+   GRADIENTES EDITORIALES SUTILES
+   Aplicados solo en elementos narrativos, NO en cards de datos.
+   =================================================================== */
+
+/* Card del ciclo: degradado crema a blanco (textura de papel editorial) */
+.ciclo-card {
+  background: linear-gradient(180deg, #FBFAF6 0%, #FFFFFF 100%) !important;
+  border: 1px solid #E0DDD5 !important;
+}
+
+/* Diagrama del ciclo: cada paso con gradiente vertical sutil */
+.ciclo-paso {
+  background: linear-gradient(180deg, #F8F6F1 0%, #F5F3EE 100%) !important;
+  position: relative;
+}
+
+/* El paso final (Bucle) con gradiente más cálido hacia el rojo institucional */
+.ciclo-paso-final {
+  background: linear-gradient(180deg, #FFF7F6 0%, #FDEEED 100%) !important;
+}
+
+/* Footer con gradiente institucional (crema a beige) */
+.dashboard-footer {
+  background: linear-gradient(180deg, #F5F3EE 0%, #EDEBE4 100%) !important;
+}
+
+/* Navbar con gradiente vertical muy sutil (profundidad sin ruido) */
+.navbar {
+  background: linear-gradient(180deg, #1A1A1A 0%, #0D0D0D 100%) !important;
+}
+
+/* ===================================================================
+   JERARQUÍA VISUAL BLINDADA CONTRA C3 (rúbrica)
+   Los números NO son "gigantes". Los títulos tienen más presencia
+   tipográfica. El contexto textual acompaña al dato.
+   =================================================================== */
+
+/* Card-header de gráficos: más peso editorial */
+.quarto-dashboard-card > .card-header,
+.bslib-card > .card-header {
+  font-size: 0.92rem !important;
+  font-weight: 500 !important;
+  font-family: 'IBM Plex Serif', Georgia, serif !important;
+  color: #1A1A1A !important;
+  letter-spacing: -0.005em !important;
+  padding: 0.85rem 1.15rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FAFAF7 100%) !important;
+}
+
+/* El título del card ocupa el espacio disponible, los tabs se van a la derecha */
+.quarto-dashboard-card > .card-header > .card-title,
+.bslib-card > .card-header > .card-title {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+/* ===================================================================
+   REFINAMIENTOS FINALES — Pulido editorial
+   =================================================================== */
+
+/* Sombra muy sutil en los cards para sensación de flotación */
+.card:not(.value-box):not(.bslib-value-box):not(.ciclo-card) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03),
+              0 1px 1px rgba(0, 0, 0, 0.02) !important;
+}
+
+/* Mejora del contraste del tab activo con entrada suave */
+.card .nav-tabs .nav-link.active,
+.card-header .nav-tabs .nav-link.active {
+  animation: fadeIn 200ms $ease-decelerate both;
+}
+
+/* ===================================================================
+   TESIS EDITORIAL — Encabezado narrativo del diagrama del ciclo
+   =================================================================== */
+
+.ciclo-tesis {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 0.95rem;
+  color: #1A1A1A;
+  line-height: 1.5;
+  font-weight: 500;
+  padding: 4px 16px 8px 16px;
+  border-left: 3px solid #C1272D;
+  margin-bottom: 8px;
+  background: rgba(193, 39, 45, 0.03);
+}
+
+/* ===================================================================
+   TESIS EDITORIAL ÚNICA (reemplaza el diagrama de 4 pasos)
+   =================================================================== */
+
+.ciclo-tesis-sola {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 1.15rem;
+  color: #1A1A1A;
+  line-height: 1.5;
+  font-weight: 400;
+  padding: 14px 24px 14px 28px;
+  border-left: 4px solid #C1272D;
+  background: linear-gradient(90deg,
+    rgba(193, 39, 45, 0.06) 0%,
+    rgba(193, 39, 45, 0.00) 50%);
+  display: flex;
+  align-items: center;
+  min-height: 60px;
+}
+
+.ciclo-tesis-sola strong {
+  color: #C1272D;
+  font-weight: 600;
+}
+
+/* ===================================================================
+   FOOTER MINIMAL — Fuentes al pie del dashboard (para I2 de rúbrica)
+   Línea única en gris muy sutil, estilo pie editorial de revista
+   =================================================================== */
+
+.footer-minimal {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 0.72rem;
+  color: #8A8A7F;
+  line-height: 1.55;
+  text-align: center;
+  padding: 10px 32px 12px;
+  border-top: 1px solid #E8E5DC;
+  background: transparent;
+  letter-spacing: 0.01em;
+
+  strong {
+    color: #595959;
+    font-weight: 600;
+  }
+}
+
+/* El Row que contiene el footer, para que no tenga bordes ni sombras */
+.dashboard-container .quarto-dashboard-row:has(.footer-minimal),
+.quarto-dashboard-row:has(.footer-minimal) {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  margin-top: 8px !important;
+}
+
+/* Oculta cualquier card wrapper que Quarto ponga */
+.footer-minimal {
+  &,
+  & * {
+    background: transparent !important;
+  }
+}
